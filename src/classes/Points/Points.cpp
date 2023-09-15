@@ -21,7 +21,7 @@ Points::Points(): data(), vb(), va()
     va.setLayout(vb, lo);
 }
 
-void Points::setColor(const vec3 &color)
+void Points::setColor(const glm::vec3 &color)
 {
     this->color = color;
 }
@@ -61,7 +61,7 @@ void Points::fillBuffer()
     if(data.size() > 0)
     {
         vb.Bind();
-        vb.SetBufferData(data.size() * sizeof(vec2), &data.front(), GL_STATIC_DRAW);
+        vb.SetBufferData(data.size() * sizeof(glm::vec2), &data.front(), GL_STATIC_DRAW);
         buffilled = true;
     }
 }
