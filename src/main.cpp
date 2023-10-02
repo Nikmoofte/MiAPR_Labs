@@ -240,6 +240,7 @@ int main()
                 }
 
                 drawAll(cores, vec, base);
+                glfwSwapBuffers(window);
             }
         }
 
