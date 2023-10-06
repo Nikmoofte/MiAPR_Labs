@@ -56,6 +56,21 @@ void Points::randomFill()
     buffilled = false;
 }
 
+void Points::normalFill(float mathExpect, float deviation)
+{
+    std::random_device rd;  // Will be used to obtain a seed for the random number engine
+    std::mt19937 gen(rd()); // Standard mersenne_twister_engine seeded with rd()
+    std::normal_distribution<float> dis(mathExpect, deviation);
+
+
+    for(auto& point : data)
+    {
+        point.x = dis(gen);
+        point.y = dis(gen);
+    }
+    buffilled = false;
+}
+
 void Points::fillBuffer()
 {
     if(data.size() > 0)

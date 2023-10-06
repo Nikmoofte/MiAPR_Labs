@@ -1,5 +1,6 @@
 #include "Renderer.h"
 
+#include <glm/gtc/type_ptr.hpp>
 
 void Renderer::Clear()
 {
@@ -26,4 +27,18 @@ void Renderer::Draw(Points &points, ShaderProg &prog)
     glUniform3fv(prog.GetLocation("color"), 1, (GLfloat*)&color);
 
     glDrawArrays(GL_POINTS, 0, points.getSize());
+}
+
+void Renderer::Draw(Point2D& point, ShaderProg &prog)
+{
+    if(!point.buffilled)
+        point.fillBuffer();
+    point.va.Bind();
+    point.vb.Bind();
+    prog.Use();
+    
+    auto color = point.color;
+    glUniform3fv(prog.GetLocation("color"), 1, (GLfloat*)&color);
+
+    glDrawArrays(GL_POINTS, 0, 1);
 }

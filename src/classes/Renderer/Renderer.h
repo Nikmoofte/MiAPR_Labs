@@ -9,6 +9,7 @@
 #include "EBO/EBO.h"
 #include "ShaderProg/ShaderProg.h"
 #include "Points/Points.hpp"
+#include "Point/Point.hpp"
 
 
 
@@ -22,6 +23,7 @@ public:
     static void Clear();
     static void Draw(const VAO&, const EBO&, const ShaderProg&);
     static void Draw(Points&, ShaderProg &);
+    static void Draw(Point2D& point, ShaderProg &prog);
 private:
 
 

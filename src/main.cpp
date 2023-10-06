@@ -11,18 +11,24 @@
 #include <Renderer/Renderer.h>
 #include <Camera/Camera.h>
 #include <glm/glm.hpp>
-
+#define _USE_MATH_DEFINES
+#include <cmath>
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
 
-#include <Points/Points.hpp>
+#include "implot.h"
+#include "implot_internal.h"
 
-#define REAL_DATA
+
+#include <Points/Points.hpp>
+#include <Point/Point.hpp>
+
+//#define REAL_DATA
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow *window);
+void processInput(GLFWwindow *window, Point2D&);
 
 // settings
 const char* glsl_version = "#version 330";
@@ -62,6 +68,17 @@ inline void distribute(const Points& points, const Points& cores, std::vector<Po
 inline void setColors(std::vector<Points>& vec);
 inline void drawAll(Points& cores, std::vector<Points>& vec, ShaderProg&);
 inline void k_means(Points& points, Points& cores, std::vector<Points>& vec, ShaderProg&, GLFWwindow*);
+ImPlotPoint normalFunc(int idx, void* data);
+
+struct normalData
+{
+    double x0;
+    double h;
+    double mathExpect;
+    double deviation;
+    float probability;
+    double max;
+};
 
 int main()
 {
@@ -88,6 +105,7 @@ int main()
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    ImPlot::CreateContext();
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
@@ -100,7 +118,8 @@ int main()
     base.Use();
     glUniform1f(base.GetLocation("maxCoord"), maxCoord);
 
-    Points points(pointsNum);
+    Points class1(pointsNum);
+    Points class2(pointsNum / 4);
 
 #ifdef REAL_DATA
     std::fstream in;
@@ -115,134 +134,63 @@ int main()
         points[index++] = temp;
     }
 #else
-    points.randomFill();
+    class1.normalFill(4.0f, 1.0f);
+    class1.setColor(colors[1]);
+
+    class2.normalFill(7.0f, 0.3f);
+    class2.setColor(colors[3]);
 #endif
-
-
-    Points cores(coresNum);
-    cores.setColor({1.f, 1.f, 1.f});
-    cores.randomFill();
-
-    std::vector<Points> vec(coresNum);
-    setColors(vec);
     
-    distribute(points, cores, vec);
-    
-    glClearColor(0.f, 0.f, 0.f, 1.0f);
-    auto prevPointsNum = pointsNum;
-    auto prevCoresNum = coresNum;
+    glPointSize(4);
+    glClearColor(0.f, 0.f, 0.f, 0.0f);
+    Point2D point{glm::vec2(1.0f)};
+    point.setColor(glm::vec3(1.0f));
+    float probability1C = 0.5f, probability2C{};
+    bool plot = false;
     while (!glfwWindowShouldClose(window))
     {
-        processInput(window);
-
+        processInput(window, point);
+        Renderer::Clear();
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        ImGui::Begin("Settings", 0, ImGuiWindowFlags_NoResize); 
-        ImGui::SetWindowSize({400, 200});
-        ImGui::SliderInt("Num of points", (int*)&pointsNum, 1, 100000, "%u");
-        ImGui::SliderInt("Num of cores", (int*)&coresNum, 2, 10, "%u");
-        bool kmeans = ImGui::Button("K-means");
-        bool minimax = ImGui::Button("minimax");
-
+        // ImGui::ShowDemoWindow();
+        
+        auto pos = point.getPos();
+        ImGui::Begin("Place a point");
+        ImGui::SliderFloat2("Pos", glm::value_ptr(pos), minCoord, maxCoord);
+        ImGui::SliderFloat("Probability assing to 1st class", &probability1C, 0.0f, 1.0f);
+        probability2C = 1.0f - probability1C;
+        ImGui::SliderFloat("Probability assing to 2nd class", &probability2C, 0.0f, 1.0f);
+        probability1C = 1.0f - probability2C;
+        plot ^= ImGui::Button("Calculate", ImVec2(100, 40));
         ImGui::End();
+        point.setPos(pos);
 
-        bool change = false;
-        if(coresNum != prevCoresNum)
+        if(plot)
         {
-            cores.resize(coresNum);
-            cores.randomFill(prevCoresNum);
+            normalData data1{0.0, 0.01, 4.0, 1.0, probability1C, 0.0};
+            normalData data2{0.0, 0.01, 7.0, 0.3, probability2C, 0.0};
+            ImGui::Begin("Plot", &plot);
 
-            prevCoresNum = coresNum;
-            change = true;
+            ImPlot::BeginPlot("Plot");
+            ImPlot::PlotLineG("Class 1", normalFunc, &data1, 1000);
+            ImPlot::PlotLineG("Class 2", normalFunc, &data2, 1000);
+            ImPlot::EndPlot();
+
+            std::string classNumb = std::to_string(data1.max > data2.max ? 1 : 2);
+            ImGui::Text("%f max probability for class %s", std::max(data1.max, data2.max), classNumb.c_str());
+
+            ImGui::End();
         }
 
-        if(pointsNum != prevPointsNum)
-        {
-            points.resize(pointsNum);
-            points.randomFill(prevPointsNum);
 
-            prevPointsNum = pointsNum;
-            change = true;
-        }
-
-        if(change)
-        {
-            vec.clear();
-            vec.resize(coresNum);
-            setColors(vec);
-            distribute(points, cores, vec);
-
-            change = false;
-        }
-
-        drawAll(cores, vec, base);
-
-        if(kmeans)
-        {
-            k_means(points, cores, vec, base, window);
-        }
-
-        if(minimax)
-        {
-            coresNum = 1;
-            cores.resize(coresNum);
-            cores.randomFill();
-
-            prevCoresNum = coresNum;
-
-            bool changed = true;
-            while(changed)
-            {
-                vec.clear();
-                vec.resize(coresNum);
-                setColors(vec);
-                distribute(points, cores, vec);
-                k_means(points, cores, vec, base, window);
-
-                changed = false;
-                glm::vec2 maxDistPoint = vec[0][0];
-                auto maxDist = glm::length(cores[0] - maxDistPoint);
-                for(int i = 0; i < coresNum; ++i)
-                {
-                    auto& points = vec[i];
-                    auto& core = cores[i];
-                    for(int j = 0; j < points.getSize(); ++j)
-                    {
-                        auto& point = points[j];
-                        if(maxDist < glm::length(core - point))
-                        {
-                            maxDistPoint = point;
-                            maxDist = glm::length(core - maxDistPoint);
-                        }
-                    }
-                }
-
-                float sum = 0.0f;
-
-                auto end = cores.getSize();
-                for(size_t i = 0; i < end - 1; ++i)
-                {
-                    for (size_t j = i + 1; j < end; ++j)
-                    {
-                        sum += glm::length(cores[i] - cores[j]);
-                    }   
-                }
-                sum /= (end * (end - 1));
-
-                if(cores.getSize() <= 1 || maxDist > sum)
-                {
-                    cores.Push(maxDistPoint);
-                    ++coresNum;
-                    prevCoresNum = coresNum;
-                    changed = true;
-                }
-
-                drawAll(cores, vec, base);
-                glfwSwapBuffers(window);
-            }
-        }
+        glPointSize(4);
+        Renderer::Draw(class1, base);
+        Renderer::Draw(class2, base);
+        glPointSize(6);
+        Renderer::Draw(point, base);
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -257,17 +205,44 @@ int main()
         glfwSwapBuffers(window);
         glfwPollEvents();
     }
+    ImGui_ImplOpenGL3_Shutdown();
+    ImGui_ImplGlfw_Shutdown();
+    ImPlot::DestroyContext();
+    ImGui::DestroyContext();
 
+    glfwDestroyWindow(window);
 
     glfwTerminate();
     return 0;
 }
 
-
-void processInput(GLFWwindow *window)
+void processInput(GLFWwindow *window, Point2D& point)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
+
+
+    auto speed = 0.01f;
+    if(glfwGetKey(window,  GLFW_KEY_UP) == GLFW_PRESS)
+        point.setPos(point.getPos() + glm::vec2(0.f, speed));
+    if(glfwGetKey(window,  GLFW_KEY_DOWN) == GLFW_PRESS)
+        point.setPos(point.getPos() + glm::vec2(0.f, -speed));
+    if(glfwGetKey(window,  GLFW_KEY_RIGHT) == GLFW_PRESS)
+        point.setPos(point.getPos() + glm::vec2(speed, 0.f));
+    if(glfwGetKey(window,  GLFW_KEY_LEFT) == GLFW_PRESS)
+        point.setPos(point.getPos() + glm::vec2(-speed, 0.f));
+}
+
+ImPlotPoint normalFunc(int idx, void *data)
+{
+    static constexpr double sqrt2pi = M_2_SQRTPI * M_SQRT1_2 / 2; // 1/sqrt(2pi)
+
+    auto ndata = (normalData*)data;
+    double x{ndata->x0 + idx * ndata->h}, y{};
+
+    y = sqrt2pi / ndata->deviation * exp(-0.5f * pow((x - ndata->mathExpect) / ndata->deviation, 2)) * ndata->probability;
+    ndata->max = std::max(ndata->max, y);
+    return ImPlotPoint(x, y);
 }
 
 void distribute(const Points &points, const Points &cores, std::vector<Points> &vec)

@@ -28,6 +28,8 @@ struct Points
     const glm::vec2& operator[](size_t index) const {return data[index];}
     void randomFill();
     void randomFill(size_t index);
+
+    void normalFill(float mathExpect, float deviation);
     void fillBuffer();
     friend class Renderer;
 private:

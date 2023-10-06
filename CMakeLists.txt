@@ -13,6 +13,8 @@ set(Classes
     ${ClassesDir}VAO/VAO.cpp
     ${ClassesDir}VAO/VBlayout.cpp
     ${ClassesDir}EBO/EBO.cpp
+    ${ClassesDir}Point/Point.cpp
+    ${ClassesDir}Points/Points.cpp
 
     ${ImguiPath}imgui_demo.cpp
     ${ImguiPath}imgui_draw.cpp
