@@ -1,6 +1,7 @@
 #ifndef POINTS_HPP
 #define POINTS_HPP
 
+#include <list>
 #include <vector>
 #include <VAO/VAO.h>
 #include <VBO/VBO.h>
@@ -24,18 +25,20 @@ struct Points
     void resize(size_t newSize) { data.resize(newSize); buffilled = false;}
     size_t getSize() const {return data.size();}
     void setColor(const glm::vec3& color);
-    glm::vec2& operator[](size_t index) {return data[index]; buffilled = false;}
-    const glm::vec2& operator[](size_t index) const {return data[index];}
     void randomFill();
-    void randomFill(size_t index);
 
     void normalFill(float mathExpect, float deviation);
+    double getMathExpectence();
+    double getDeviation(double mathExpectence);
+    double getDeviation();
+
     void fillBuffer();
+    auto& getList() {return data;}
     friend class Renderer;
 private:
     auto getData() {return data.front();}
     bool buffilled = false;
-    std::vector<glm::vec2> data;
+    std::list<glm::vec2> data;
     glm::vec3 color;
     VBO vb;
     VAO va;
