@@ -200,16 +200,16 @@ int main()
                 double x0;
                 double h;
                 glm::vec4 coef;
-            } data{-3, 0.00001, finalCoefs};
+            } data{-3, 0.001, finalCoefs};
             auto func = [](int idx, void* data) -> ImPlotPoint
             {
                 auto& ndata = *(_data*)data;  
                 double x = ndata.x0 + idx * ndata.h;
                 return ImPlotPoint(x, -(ndata.coef.x + ndata.coef.y * x) / (ndata.coef.z + ndata.coef.w * x));
             }; 
-            ImPlot::PlotLineG("dev func", func, &data, 900000, ImPlotLineFlags_Segments);
+            ImPlot::PlotLineG("dev func", func, &data, 9000, ImPlotLineFlags_Segments);
             data.x0 = 6;
-            ImPlot::PlotLineG("dev func", func, &data, 300000, ImPlotLineFlags_Segments);
+            ImPlot::PlotLineG("dev func", func, &data, 3000, ImPlotLineFlags_Segments);
         }
 
         ImPlot::EndPlot();
