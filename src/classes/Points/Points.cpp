@@ -51,8 +51,9 @@ void Points::normalFill(float mathExpect, float deviation)
     for(auto& point : data)
     {
         point.x = dis(gen);
-        point.y = height;
-        height += 10.0f / getSize();
+        point.y = dis(gen);
+        // point.y = height;
+        // height += 10.0f / getSize();
     }
     buffilled = false;
 }

@@ -22,14 +22,13 @@
 #include "implot.h"
 #include "implot_internal.h"
 
-
 #include <Points/Points.hpp>
 #include <Point/Point.hpp>
 
 //#define REAL_DATA
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void processInput(GLFWwindow *window, Point2D&);
+void processInput(GLFWwindow *window);
 
 // settings
 const char* glsl_version = "#version 330";
@@ -37,21 +36,13 @@ const char* glsl_version = "#version 330";
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
 
-#ifdef REAL_DATA
-extern const float maxCoord = 140.f; 
-#else
+
 extern const float maxCoord = 10.f; 
-#endif
 extern const float minCoord = 0.f; 
 
-unsigned coresNum = 6;
 double delta = 0.0000001;
 
-#ifdef REAL_DATA
-unsigned pointsNum = 201;
-#else
 unsigned pointsNum = 1000;
-#endif
 
 std::vector<glm::vec3> colors = {
     {1.f, 0.f, 0.f},
@@ -72,34 +63,11 @@ struct normalData
     double h;
     double mathExpect;
     double deviation;
-    float probability;
-    double max;
 };
 
-inline void setColors(std::vector<Points>& vec);
-inline void drawAll(Points& cores, std::vector<Points>& vec, ShaderProg&);
 inline double normalFunc(double x, double mathExpect, double deviation);
 ImPlotPoint normalFunc(int idx, void* data);
-double simpson_rule(double a, double b,
-                    int n, // Number of intervals
-                    double mathExpect, double deviation)
-{
-    double h = (b - a) / n;
-
-    // Internal sample points, there should be n - 1 of them
-    double sum_odds = 0.0;
-    for (int i = 1; i < n; i += 2)
-    {
-        sum_odds += normalFunc(a + i * h, mathExpect, deviation);
-    }
-    double sum_evens = 0.0;
-    for (int i = 2; i < n; i += 2)
-    {
-        sum_evens += normalFunc(a + i * h, mathExpect, deviation);
-    }
-
-    return (normalFunc(a, mathExpect, deviation) + normalFunc(b, mathExpect, deviation) + 2 * sum_evens + 4 * sum_odds) * h / 3;
-}
+double simpson_rule(double a, double b, int n, double mathExpect, double deviation);
 glm::vec2 intersection(const normalData& data1, const normalData& data2, double delta);
 
 
@@ -109,8 +77,10 @@ int main()
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_TRANSPARENT_FRAMEBUFFER, GLFW_TRUE);
+    glfwWindowHint(GLFW_DECORATED , GLFW_FALSE);
 
-    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "Statistic distribution", NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(10, 10, "Statistic distribution", NULL, NULL);
     if (window == NULL)
     {
         std::cout << "Failed to create GLFW window" << std::endl;
@@ -141,171 +111,110 @@ int main()
     base.Use();
     glUniform1f(base.GetLocation("maxCoord"), maxCoord);
 
-    Points class1(pointsNum);
-    Points class2(pointsNum / 4);
+    normalData data1{0.0, 0.01, 4.0, 1.0};
+    normalData data2{0.0, 0.01, 7.0, 0.5};
 
-#ifdef REAL_DATA
-    std::fstream in;
-    in.open("../../Mall_Customers.csv");
-
-    size_t index = 0;
-    while(!in.eof())
-    {
-        glm::vec2 temp;
-        char trash;
-        in >> temp.x >> trash >> temp.y;
-        points[index++] = temp;
-    }
-#else
-    float probability1C{0.5f}, probability2C{0.5f};
-    normalData data1{0.0, 0.01, 4.0, 1.0, probability1C, 0.0};
-    normalData data2{0.0, 0.01, 7.0, 1.0, probability2C, 0.0};
+    Points class1{2}, class2{2};
+    class1.setColor(colors[0]);
+    class2.setColor(colors[1]);
 
     class1.normalFill(data1.mathExpect, data1.deviation);
-    class1.setColor(colors[1]);
-    data1.mathExpect = class1.getMathExpectence();
-    data1.deviation = class1.getDeviation(data1.mathExpect);
-
     class2.normalFill(data2.mathExpect, data2.deviation);
-    class2.setColor(colors[2]);
-    data2.mathExpect = class2.getMathExpectence();
-    data2.deviation = class2.getDeviation(data2.mathExpect);
 
-    auto intr = intersection(data1, data2, delta);
-#endif
-    
-    glPointSize(4);
+
+    glPointSize(10);
     glClearColor(0.f, 0.f, 0.f, 0.0f);
-    Point2D point{glm::vec2(1.0f)};
-    point.setColor(glm::vec3(1.0f));
-
-    bool calcProbability = false;
+    bool open = true;
     while (!glfwWindowShouldClose(window))
     {
-        processInput(window, point);
+        processInput(window);
         Renderer::Clear();
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
         // ImGui::ShowDemoWindow();
-        
-        auto pos = point.getPos();
-        ImGui::Begin("Place a point");
-        ImGui::SliderFloat2("Pos", glm::value_ptr(pos), minCoord, maxCoord);
-        ImGui::SliderFloat("Probability assing to 1st class", &probability1C, 0.0f, 1.0f);
-        probability2C = 1.0f - probability1C;
-        ImGui::SliderFloat("Probability assing to 2nd class", &probability2C, 0.0f, 1.0f);
-        probability1C = 1.0f - probability2C;
-        calcProbability = ImGui::Button("Calculate", ImVec2(100, 40));
-        ImGui::End();
-        point.setPos(pos);
-        if(abs(data1.probability - probability1C) > delta)
-        {
-            data1.probability = probability1C;
-            data2.probability = probability2C;
-            intr = intersection(data1, data2, delta);
-        }
-        if(calcProbability)
-        {
-            auto& Class1list = class1.getList();
-            for(auto beg = Class1list.begin(), end = Class1list.end(); beg != end;)
-            {
-                data1.max = normalFunc(beg->x, data1.mathExpect, data1.deviation) * probability1C;
-                data2.max = normalFunc(beg->x, data2.mathExpect, data2.deviation) * probability2C;
-                if(data1.max < data2.max)
-                {
-                    class2.Push(*beg);
-                    beg = Class1list.erase(beg);
-                }
-                else
-                    ++beg;
-            }
-            class1.fillBuffer();
-
-            auto& Class2list = class2.getList();
-            for(auto beg = Class2list.begin(), end = Class2list.end(); beg != end; )
-            {
-                data1.max = normalFunc(beg->x, data1.mathExpect, data1.deviation) * probability1C;
-                data2.max = normalFunc(beg->x, data2.mathExpect, data2.deviation) * probability2C;
-                if(data1.max > data2.max)
-                {
-                    class1.Push(*beg);
-                    beg = Class2list.erase(beg);
-                }
-                else
-                    ++beg;
-            }
-            class2.fillBuffer();
-        }
-
-        static double difPercent1C{}, difPercent2C{};
-        static double difDevPercent1C{}, difDevPercent2C{};
-         
-        /*if(calcProbability)
-        {
-            auto mathExpect1C = class1.getMathExpectence() * class1.getSize();
-            auto mathExpect2C = class2.getMathExpectence() * class2.getSize();
-            
-            difPercent1C = (mathExpect1C + glm::length(pos)) / mathExpect1C - 1;
-            difPercent2C = (mathExpect2C + glm::length(pos)) / mathExpect2C - 1;
-
-            mathExpect1C = (mathExpect1C + glm::length(pos)) / class1.getSize();
-            mathExpect2C = (mathExpect2C + glm::length(pos)) / class2.getSize();
-
-            double dev1C = class1.getDeviation(mathExpect1C) * class1.getSize();
-            double dev2C = class1.getDeviation(mathExpect2C) * class2.getSize();
-
-            difDevPercent1C = (dev1C + pow(glm::length(pos) - mathExpect1C, 2)) / dev1C - 1;
-            difDevPercent2C = (dev2C + pow(glm::length(pos) - mathExpect2C, 2)) / dev2C - 1;
-
-            probability1C = (1 / ((difDevPercent1C + difPercent1C) / (difDevPercent2C + difPercent2C)));
-        }*/
-        data1.max = normalFunc(pos.x, data1.mathExpect, data1.deviation) * probability1C;
-        data2.max = normalFunc(pos.x, data2.mathExpect, data2.deviation) * probability2C;
-
         //ImPlot::ShowDemoWindow();
-
-        ImGui::Begin("Plot");
-
-        ImPlot::BeginPlot("Plot");
-        ImPlot::PlotLineG("Class 1", normalFunc, &data1, 1000);
-        ImPlot::PlotLineG("Class 2", normalFunc, &data2, 1000);
-        auto fillData = data2;
-        fillData.x0 = intr.x - 2.0f;
-        ImPlot::PlotShadedG("Zone 1", normalFunc, &fillData, [](int idx, void *data){ auto ndata = (normalData*)data; return ImPlotPoint(ndata->x0 + idx * ndata->h, 0);}, &fillData, 201);
-        fillData = data1;
-        fillData.x0 = intr.x;
-        ImPlot::PlotShadedG("Zone 2", normalFunc, &fillData, [](int idx, void *data){ auto ndata = (normalData*)data; return ImPlotPoint(ndata->x0 + idx * ndata->h, 0);}, &fillData, 200);
-        double xp[]{pos.x, pos.x}, yp[]{0.0, 0.5};
-        ImPlot::PlotLine("Pos", xp, yp, 2);
-        ImPlot::EndPlot();
-        int classNumb = data1.max > data2.max ? 1 : 2;
-        point.setColor(colors[classNumb]);
-        ImGui::Text("max probability = %f for class %s", std::max(data1.max, data2.max), std::to_string(classNumb).c_str());
-
-        auto LTerror = simpson_rule(intr.x - 2.0, intr.x, 1000, data2.mathExpect, data2.deviation);
-        auto POerror = simpson_rule(intr.x, intr.x + 2.0, 1000, data1.mathExpect, data1.deviation);
-        ImGui::Text("False alarm: %f", LTerror);
-        ImGui::Text("Detection skip: %f", POerror);
-        ImGui::Text("Error sum: %f", POerror + LTerror);
-
-        /*if(calcProbability)
+        ImGui::Begin("Lab 4", &open, ImGuiWindowFlags_NoResize);
+        ImGui::SetWindowSize(ImVec2(SCR_WIDTH, SCR_HEIGHT));
+        static bool change = true;
+        if(ImGui::Button("Redestrebute", ImVec2(200, 50)))
         {
-            ImGui::Text("dif 1 class %e", difPercent1C);
-            ImGui::Text("dif 2 class %e", difPercent2C);
+            class1.normalFill(data1.mathExpect, data1.deviation);
+            class2.normalFill(data2.mathExpect, data2.deviation);
+            change = true;
+        }
+        ImPlot::BeginPlot("Plot");
+        auto* data = &class1.getData();
+        ImPlot::PlotScatter("data 1", (float*)data, (float*)data + 1, class1.getSize(), 0, 0, sizeof(glm::vec2));
+        data = &class2.getData();
+        ImPlot::PlotScatter("data 2", (float*)data, (float*)data + 1, class2.getSize(), 0, 0, sizeof(glm::vec2));
+        
+        static bool calc = 0;
+        calc ^= ImGui::Button("Calculate", ImVec2(200, 50));
+        if(calc)
+        {
+            static glm::vec4 finalCoefs{0.0f};
+            // class1[0] = glm::vec2(-1.7, 3.1); 
+            // class1[1] = glm::vec2(3.1, 4.2); 
 
-            ImGui::Text("\ndev dif 1 class %e", difDevPercent1C);
-            ImGui::Text("dev dif 2 class %e", difDevPercent2C);
-        }*/
+            // class2[0] = glm::vec2(6.4, 7); 
+            // class2[1] = glm::vec2(7.1, 7.1); 
+            if(change)
+            {
+                glm::vec4 coefs{0.0f};
+                auto func = [&coefs](const glm::vec2& point){ return coefs.x + coefs.y * point.x + coefs.z * point.y + coefs.w * point.x * point.y; }; 
+                float p = 1;
+                bool temp = true;
+                bool working = true;
+                while(working)
+                {
+                    working = false;
+                    for(int i = 0; i < class1.getSize(); ++i)
+                    {
+                        auto& point = class1[i];
+                        glm::vec4 correction{p, p * 4 *point.x, p * 4 * point.y, p * 16 * point.x * point.y};
+                        if(func(point) <= 0)
+                        {
+                            coefs += correction;
+                            working = true;
+                        }
+                    }
+                    for(int i = 0; i < class2.getSize(); ++i)
+                    {
+                        auto& point = class2[i];
+                        glm::vec4 correction{p, p * 4 *point.x, p * 4 * point.y, p * 16 * point.x * point.y};
+                        if(func(point) > 0)
+                        {
+                            coefs -= correction;
+                            working = true;
+                        }
+                    }
+                    
+                }
+                
+                finalCoefs = coefs;
+            }
+            struct _data
+            {
+                double x0;
+                double h;
+                glm::vec4 coef;
+            } data{-3, 0.00001, finalCoefs};
+            auto func = [](int idx, void* data) -> ImPlotPoint
+            {
+                auto& ndata = *(_data*)data;  
+                double x = ndata.x0 + idx * ndata.h;
+                return ImPlotPoint(x, -(ndata.coef.x + ndata.coef.y * x) / (ndata.coef.z + ndata.coef.w * x));
+            }; 
+            ImPlot::PlotLineG("dev func", func, &data, 900000, ImPlotLineFlags_Segments);
+            data.x0 = 6;
+            ImPlot::PlotLineG("dev func", func, &data, 300000, ImPlotLineFlags_Segments);
+        }
 
+        ImPlot::EndPlot();
         ImGui::End();
-
-        glPointSize(4);
-        Renderer::Draw(class1, base);
-        Renderer::Draw(class2, base);
-        glPointSize(10);
-        Renderer::Draw(point, base);
+       
 
         ImGui::Render();
         ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -319,6 +228,8 @@ int main()
 
         glfwSwapBuffers(window);
         glfwPollEvents();
+        glfwSetWindowShouldClose(window, !open);
+
     }
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplGlfw_Shutdown();
@@ -331,21 +242,10 @@ int main()
     return 0;
 }
 
-void processInput(GLFWwindow *window, Point2D& point)
+void processInput(GLFWwindow *window)
 {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
         glfwSetWindowShouldClose(window, true);
-
-
-    auto speed = 0.02f;
-    if(glfwGetKey(window,  GLFW_KEY_UP) == GLFW_PRESS)
-        point.setPos(point.getPos() + glm::vec2(0.f, speed));
-    if(glfwGetKey(window,  GLFW_KEY_DOWN) == GLFW_PRESS)
-        point.setPos(point.getPos() + glm::vec2(0.f, -speed));
-    if(glfwGetKey(window,  GLFW_KEY_RIGHT) == GLFW_PRESS)
-        point.setPos(point.getPos() + glm::vec2(speed, 0.f));
-    if(glfwGetKey(window,  GLFW_KEY_LEFT) == GLFW_PRESS)
-        point.setPos(point.getPos() + glm::vec2(-speed, 0.f));
 }
 
 ImPlotPoint normalFunc(int idx, void *data)
@@ -353,8 +253,27 @@ ImPlotPoint normalFunc(int idx, void *data)
     auto ndata = (normalData*)data;
     double x{ndata->x0 + idx * ndata->h}, y{};
 
-    y = normalFunc(x, ndata->mathExpect, ndata->deviation) * ndata->probability;
+    y = normalFunc(x, ndata->mathExpect, ndata->deviation);
     return ImPlotPoint(x, y);
+}
+
+double simpson_rule(double a, double b, int n, double mathExpect, double deviation)
+{
+    double h = (b - a) / n;
+
+    // Internal sample points, there should be n - 1 of them
+    double sum_odds = 0.0;
+    for (int i = 1; i < n; i += 2)
+    {
+        sum_odds += normalFunc(a + i * h, mathExpect, deviation);
+    }
+    double sum_evens = 0.0;
+    for (int i = 2; i < n; i += 2)
+    {
+        sum_evens += normalFunc(a + i * h, mathExpect, deviation);
+    }
+
+    return (normalFunc(a, mathExpect, deviation) + normalFunc(b, mathExpect, deviation) + 2 * sum_evens + 4 * sum_odds) * h / 3;
 }
 
 inline double normalFunc(double x, double mathExpect, double deviation)
@@ -363,37 +282,7 @@ inline double normalFunc(double x, double mathExpect, double deviation)
     return sqrt2pi / deviation * exp(-0.5f * pow((x - mathExpect) / deviation, 2));
 }
 
-glm::vec2 intersection(const normalData& data1, const normalData& data2, double delta)
-{
-    double step = 0.001;
-    for(double min = 2.0; min < maxCoord; min += step)
-    {
-        if(normalFunc(min, data1.mathExpect, data1.deviation) * data1.probability - normalFunc(min, data2.mathExpect, data2.deviation) * data2.probability < delta)
-            return glm::vec2(min, normalFunc(min, data1.mathExpect, data1.deviation) * data1.probability);
-    }
-}
 
-
-void setColors(std::vector<Points> &vec)
-{
-    auto iter = colors.begin();
-    for(auto& points : vec)
-    {
-        points.setColor(*iter++);
-    }
-}
-
-void drawAll(Points &cores, std::vector<Points>& vec, ShaderProg& base)
-{
-    Renderer::Clear();
-    glPointSize(4);
-    for(auto& points : vec)
-    {
-        Renderer::Draw(points, base);
-    }
-    glPointSize(5);
-    Renderer::Draw(cores, base);
-}
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {

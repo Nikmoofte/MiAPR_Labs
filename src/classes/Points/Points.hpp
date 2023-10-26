@@ -22,6 +22,7 @@ struct Points
         data.clear(); 
         buffilled = false;
     }
+    glm::vec2& operator[](const size_t index) {return data[index];};
     void resize(size_t newSize) { data.resize(newSize); buffilled = false;}
     size_t getSize() const {return data.size();}
     void setColor(const glm::vec3& color);
@@ -33,12 +34,12 @@ struct Points
     double getDeviation();
 
     void fillBuffer();
-    auto& getList() {return data;}
+    // auto& getData() {return data;}
+    auto& getData() {return data.front();}
     friend class Renderer;
 private:
-    auto getData() {return data.front();}
     bool buffilled = false;
-    std::list<glm::vec2> data;
+    std::vector<glm::vec2> data;
     glm::vec3 color;
     VBO vb;
     VAO va;
