@@ -1,19 +1,17 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <iomanip>
 #include <fstream>
-
-#include "ShaderProg/ShaderProg.h"
-#include <VBO/VBO.h>
-#include <VAO/VAO.h>
-#include <VAO/VBLayout.h>
-#include <EBO/EBO.h>
-#include <Renderer/Renderer.h>
+#include <random>
+#include <memory>
+#include <cmath>
+#include <cfloat>
 #include <algorithm>
-#include <Camera/Camera.h>
+#include <string>
+
 #include <glm/glm.hpp>
 #define _USE_MATH_DEFINES
-#include <cmath>
 
 #include "imgui.h"
 #include "backends/imgui_impl_glfw.h"
@@ -22,16 +20,18 @@
 #include "implot.h"
 #include "implot_internal.h"
 
-#include <Points/Points.hpp>
-#include <Point/Point.hpp>
 
 //#define REAL_DATA
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
+void delTrash(std::vector<std::vector<float>> &vec, const glm::vec2& pos, bool (*compareFunc)(float, float));
+void vecOut(const std::vector<std::vector<float>> &vec);
 void processInput(GLFWwindow *window);
 
 // settings
 const char* glsl_version = "#version 330";
+
+constexpr float delta = 0.0001;
 
 const unsigned int SCR_WIDTH = 800;
 const unsigned int SCR_HEIGHT = 600;
@@ -40,36 +40,22 @@ const unsigned int SCR_HEIGHT = 600;
 extern const float maxCoord = 10.f; 
 extern const float minCoord = 0.f; 
 
-double delta = 0.0000001;
+auto minFunc = [](float f, float s) { return f < s; };
+auto maxFunc = [](float f, float s) { return f > s; };
 
-unsigned pointsNum = 1000;
-
-std::vector<glm::vec3> colors = {
-    {1.f, 0.f, 0.f},
-    {0.f, 1.f, 0.f},
-    {0.f, 0.f, 1.f},
-    {1.f, 1.f, 0.f},
-    {1.f, 0.f, 1.f},
-    {0.f, 1.f, 1.f},
-    {0.75f, 0.75f, 0.25f},
-    {0.75f, 0.25f, 0.75f},
-    {0.25f, 0.75f, 0.75f},
-    {0.50f, 0.25f, 0.50f}
-    };
-
-struct normalData
+struct child
 {
-    double x0;
-    double h;
-    double mathExpect;
-    double deviation;
+    glm::vec2 first{};
+    glm::vec2 second{};
+    float val;
 };
 
-inline double normalFunc(double x, double mathExpect, double deviation);
-ImPlotPoint normalFunc(int idx, void* data);
-double simpson_rule(double a, double b, int n, double mathExpect, double deviation);
-glm::vec2 intersection(const normalData& data1, const normalData& data2, double delta);
+int hierarchyFind(const std::vector<child>&hierarchy, float);
 
+size_t pointNum = 10;
+
+void randomFill(std::vector<std::vector<float>>& vec);
+glm::vec2 find(std::vector<std::vector<float>>& vec, bool (*compareFunc)(float, float));
 
 int main()
 {
@@ -106,112 +92,162 @@ int main()
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
-    
-    ShaderProg base("../../shaders/Base.vs", "../../shaders/Base.fs");
-    base.Use();
-    glUniform1f(base.GetLocation("maxCoord"), maxCoord);
 
-    normalData data1{0.0, 0.01, 4.0, 1.0};
-    normalData data2{0.0, 0.01, 7.0, 0.5};
 
-    Points class1{2}, class2{2};
-    class1.setColor(colors[0]);
-    class2.setColor(colors[1]);
-
-    class1.normalFill(data1.mathExpect, data1.deviation);
-    class2.normalFill(data2.mathExpect, data2.deviation);
+    std::vector<std::vector<float>> dists(pointNum);
+    for(auto& elem : dists) elem.resize(pointNum);
+    randomFill(dists);
+    for(int i = 0; i < pointNum; ++i)
+    {
+        dists[i][i] = 0.0f;
+        for(int j = 0; j < i; ++j)
+            dists[i][j] = dists[j][i];
+    }
 
 
     glPointSize(10);
     glClearColor(0.f, 0.f, 0.f, 0.0f);
     bool open = true;
+    std::vector<child> hierarchy;
+    auto copyDists = dists;
+    auto prevPointNum = pointNum;
+    vecOut(copyDists);
+    std::cout << std::endl;
+    for(auto& elem : hierarchy)
+    {
+        std::cout << elem.first.x << ' ' << elem.second.x << '\n'; 
+    }
+    std::cout << std::endl;
+    bool reFill = false;
+    bool cmprFunc = false;
     while (!glfwWindowShouldClose(window))
     {
         processInput(window);
-        Renderer::Clear();
+        glClear(GL_COLOR_BUFFER_BIT);
         ImGui_ImplOpenGL3_NewFrame();
         ImGui_ImplGlfw_NewFrame();
         ImGui::NewFrame();
 
-        // ImGui::ShowDemoWindow();
+        //ImGui::ShowDemoWindow();
         //ImPlot::ShowDemoWindow();
         ImGui::Begin("Lab 4", &open, ImGuiWindowFlags_NoResize);
         ImGui::SetWindowSize(ImVec2(SCR_WIDTH, SCR_HEIGHT));
-        static bool change = true;
-        if(ImGui::Button("Redestrebute", ImVec2(200, 50)))
-        {
-            class1.normalFill(data1.mathExpect, data1.deviation);
-            class2.normalFill(data2.mathExpect, data2.deviation);
-            change = true;
-        }
-        ImPlot::BeginPlot("Plot");
-        auto* data = &class1.getData();
-        ImPlot::PlotScatter("data 1", (float*)data, (float*)data + 1, class1.getSize(), 0, 0, sizeof(glm::vec2));
-        data = &class2.getData();
-        ImPlot::PlotScatter("data 2", (float*)data, (float*)data + 1, class2.getSize(), 0, 0, sizeof(glm::vec2));
         
-        static bool calc = 0;
-        calc ^= ImGui::Button("Calculate", ImVec2(200, 50));
-        if(calc)
-        {
-            static glm::vec4 finalCoefs{0.0f};
-            // class1[0] = glm::vec2(-1.7, 3.1); 
-            // class1[1] = glm::vec2(3.1, 4.2); 
+        ImGui::SliderInt("size", reinterpret_cast<int*>(&pointNum), 2, 10);
 
-            // class2[0] = glm::vec2(6.4, 7); 
-            // class2[1] = glm::vec2(7.1, 7.1); 
-            if(change)
+        size_t tableSize = pointNum + 1;
+        if (ImGui::BeginTable("Input", tableSize))
+        {
+            ImGui::TableNextRow();
+            for(int j = 0; j < tableSize; ++j)
             {
-                glm::vec4 coefs{0.0f};
-                auto func = [&coefs](const glm::vec2& point){ return coefs.x + coefs.y * point.x + coefs.z * point.y + coefs.w * point.x * point.y; }; 
-                float p = 1;
-                bool temp = true;
-                bool working = true;
-                while(working)
-                {
-                    working = false;
-                    for(int i = 0; i < class1.getSize(); ++i)
-                    {
-                        auto& point = class1[i];
-                        glm::vec4 correction{p, p * 4 *point.x, p * 4 * point.y, p * 16 * point.x * point.y};
-                        if(func(point) <= 0)
-                        {
-                            coefs += correction;
-                            working = true;
-                        }
-                    }
-                    for(int i = 0; i < class2.getSize(); ++i)
-                    {
-                        auto& point = class2[i];
-                        glm::vec4 correction{p, p * 4 *point.x, p * 4 * point.y, p * 16 * point.x * point.y};
-                        if(func(point) > 0)
-                        {
-                            coefs -= correction;
-                            working = true;
-                        }
-                    }
-                    
-                }
-                
-                finalCoefs = coefs;
+                ImGui::TableSetColumnIndex(j);
+                ImGui::Text("x%d", j);
             }
-            struct _data
+            for (int i = 1; i < tableSize ; ++i)
             {
-                double x0;
-                double h;
-                glm::vec4 coef;
-            } data{-3, 0.001, finalCoefs};
-            auto func = [](int idx, void* data) -> ImPlotPoint
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text("x%d", i);
+                for (int j = 1; j < tableSize; ++j)
+                {
+                    ImGui::TableSetColumnIndex(j);
+                    ImGui::InputFloat((std::string("##") + std::to_string(i) + std::to_string(j)).c_str(), &(dists[i - 1][j - 1]), 0, 100.0);
+                }
+            }
+            ImGui::EndTable();
+
+            static bool prevState = cmprFunc;
+            ImGui::Checkbox("Max", &cmprFunc);
+            reFill = prevState != cmprFunc;
+            prevState = cmprFunc;
+
+            ImGui::SameLine();
+            if(reFill = ImGui::Button("Regenerate", ImVec2(100, 30)))
             {
-                auto& ndata = *(_data*)data;  
-                double x = ndata.x0 + idx * ndata.h;
-                return ImPlotPoint(x, -(ndata.coef.x + ndata.coef.y * x) / (ndata.coef.z + ndata.coef.w * x));
-            }; 
-            ImPlot::PlotLineG("dev func", func, &data, 9000, ImPlotLineFlags_Segments);
-            data.x0 = 6;
-            ImPlot::PlotLineG("dev func", func, &data, 3000, ImPlotLineFlags_Segments);
+                randomFill(dists);
+                for(int i = 0; i < pointNum; ++i)
+                {
+                    dists[i][i] = 0.0f;
+                    for(int j = 0; j < i; ++j)
+                        dists[i][j] = dists[j][i];
+                }
+            }
+
         }
 
+        static auto size = copyDists.size();
+        if(pointNum != prevPointNum || reFill)
+        {
+            copyDists = dists;
+            copyDists.resize(pointNum);
+            for(auto& arr : copyDists)
+                arr.resize(pointNum);
+            hierarchy.clear();
+
+            size = pointNum;
+            prevPointNum = pointNum;
+        }
+
+        while(size > 1)
+        {
+            glm::vec2 anchor;
+            if(cmprFunc)
+                anchor = find(copyDists, maxFunc);
+            else
+                anchor = find(copyDists, minFunc);
+            
+            child a;
+            int ind;
+            if((ind = hierarchyFind(hierarchy, anchor.x)) != -1)
+            {
+                auto& chld = hierarchy[ind];
+                a.first.x = (chld.first.x + chld.second.x) / 2.0f;
+                a.first.y = chld.val;    
+            }
+            else
+                a.first.x = anchor.x;
+
+            if((ind = hierarchyFind(hierarchy, anchor.y)) != -1)
+            {
+                auto& chld = hierarchy[ind];
+                a.second.x = (chld.first.x + chld.second.x) / 2.0f;
+                a.second.y = chld.val;    
+            }
+            else
+                a.second.x = anchor.y;
+            a.val = copyDists[anchor.y][anchor.x];
+
+            hierarchy.push_back(a);
+            if(cmprFunc)
+                delTrash(copyDists, anchor, maxFunc);
+            else
+                delTrash(copyDists, anchor, minFunc);
+            --size;
+
+            vecOut(copyDists);
+            std::cout << std::endl;
+            for(auto& elem : hierarchy)
+            {
+                std::cout << elem.first.x << ' ' << elem.second.x << ' ' << elem.val << '\n'; 
+            }
+            std::cout << std::endl;
+        }
+
+
+        ImPlot::BeginPlot("Plot");
+        int ind = 0;
+        for(auto& elem : hierarchy)
+        {
+            std::string lbl("a");
+            lbl[0] += ind;
+
+            float xb[] = {elem.first.x, elem.first.x, elem.second.x, elem.second.x}; 
+            float yb[] = {elem.first.y, elem.val, elem.val, elem.second.y};               
+
+            ImPlot::PlotLine(lbl.c_str(), xb, yb, 4);
+            ++ind;
+        }
         ImPlot::EndPlot();
         ImGui::End();
        
@@ -248,41 +284,89 @@ void processInput(GLFWwindow *window)
         glfwSetWindowShouldClose(window, true);
 }
 
-ImPlotPoint normalFunc(int idx, void *data)
+int hierarchyFind(const std::vector<child> &hierarchy, float a)
 {
-    auto ndata = (normalData*)data;
-    double x{ndata->x0 + idx * ndata->h}, y{};
-
-    y = normalFunc(x, ndata->mathExpect, ndata->deviation);
-    return ImPlotPoint(x, y);
-}
-
-double simpson_rule(double a, double b, int n, double mathExpect, double deviation)
-{
-    double h = (b - a) / n;
-
-    // Internal sample points, there should be n - 1 of them
-    double sum_odds = 0.0;
-    for (int i = 1; i < n; i += 2)
+    int res = -1;
+    int temp = 0;
+    for(auto& elem : hierarchy)
     {
-        sum_odds += normalFunc(a + i * h, mathExpect, deviation);
+        if(std::abs(elem.second.x - a) <= delta ||
+           std::abs(elem.first.x - a) <= delta) 
+        {
+            res = temp;
+            a = (elem.first.x + elem.second.x) / 2.0f;
+        }
+        ++temp;
     }
-    double sum_evens = 0.0;
-    for (int i = 2; i < n; i += 2)
-    {
-        sum_evens += normalFunc(a + i * h, mathExpect, deviation);
-    }
-
-    return (normalFunc(a, mathExpect, deviation) + normalFunc(b, mathExpect, deviation) + 2 * sum_evens + 4 * sum_odds) * h / 3;
+    return res;
 }
 
-inline double normalFunc(double x, double mathExpect, double deviation)
+void randomFill(std::vector<std::vector<float>> &vec)
 {
-    static constexpr double sqrt2pi = M_2_SQRTPI * M_SQRT1_2 / 2; // 1/sqrt(2pi)
-    return sqrt2pi / deviation * exp(-0.5f * pow((x - mathExpect) / deviation, 2));
+    std::random_device rd;  // Will be used to obtain a seed for the random number engine
+    std::mt19937 gen(rd()); // Standard mersenne_twister_engine seeded with rd()
+    std::uniform_real_distribution<float> dis(0, 100.0);
+    for(auto& arr : vec)
+        for(auto& elem : arr)
+            elem = dis(gen);
+}
+
+glm::vec2 find(std::vector<std::vector<float>> &vec, bool (*compareFunc)(float, float))
+{
+    glm::vec2 res;
+    bool end = false;
+    for(int i = 0; i < vec.size() && !end; ++i)
+    {
+        for(int j = i + 1; j < vec.size() && !end; ++j)
+        {
+            res = glm::vec2(j, i);
+            if(vec[i][j] > 0)
+                end = true;
+        }
+    }
+
+    for(size_t i = 0; i < vec.size(); ++i)
+    {
+        for(size_t j = i + 1; j < vec.size(); ++j)
+        {
+            if(vec[i][j] <= 0) 
+                continue;
+            if(compareFunc(vec[i][j], vec[res.y][res.x]))
+                res = glm::vec2(j, i);
+        }
+    }
+
+    return res;
 }
 
 
+//no deliting in the [pos.y] class place data from union, [pos.x] now is -1 every where
+void delTrash(std::vector<std::vector<float>> &vec, const glm::vec2& pos, bool (*compareFunc)(float, float))
+{
+    for(int i = 0; i < vec.size(); ++i)
+    {
+        auto maxVal = compareFunc(vec[pos.x][i], vec[pos.y][i]) ? vec[pos.x][i] : vec[pos.y][i];
+        //[pos.y] class place data from union
+        vec[pos.y][i] = maxVal;
+        vec[i][pos.y] = maxVal;
+        
+        vec[pos.x][i] = -1.0f;
+        vec[i][pos.x] = -1.0f;
+    }
+
+    
+}
+
+void vecOut(const std::vector<std::vector<float>> &vec)
+{
+    for(auto& arr : vec)
+    {
+        std::cout << "[ ";
+        for(auto elem : arr)
+            std::cout <<  std::setw(7) << std::setprecision(4) << std::setfill(' ') << elem << ", " << '\t';
+        std::cout << " ]" << "\n";     
+    }
+}
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height)
 {
