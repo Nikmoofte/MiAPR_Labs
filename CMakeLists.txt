@@ -6,15 +6,7 @@ set(ImguiPath deps/imgui/)
 set(ImplotPath deps/implot/)
 
 set(Classes 
-    ${ClassesDir}Camera/Camera.cpp
     ${ClassesDir}ShaderProg/ShaderProg.cpp
-    ${ClassesDir}Renderer/Renderer.cpp
-    ${ClassesDir}VBO/VBO.cpp
-    ${ClassesDir}VAO/VAO.cpp
-    ${ClassesDir}VAO/VBlayout.cpp
-    ${ClassesDir}EBO/EBO.cpp
-    ${ClassesDir}Point/Point.cpp
-    ${ClassesDir}Points/Points.cpp
 
     ${ImguiPath}imgui_demo.cpp
     ${ImguiPath}imgui_draw.cpp
@@ -28,8 +20,8 @@ set(Classes
     ${ImplotPath}implot.cpp
     ${ImplotPath}implot_demo.cpp
 )
-
 add_executable(main src/main.cpp include/glad/glad.c include/stb_image/stb_image.cpp ${Classes})
+set_property(TARGET main PROPERTY CXX_STANDARD 26)
 
 add_subdirectory(deps/glfw)
 add_subdirectory(deps/glm)

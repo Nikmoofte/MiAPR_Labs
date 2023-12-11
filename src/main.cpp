@@ -1,14 +1,14 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <sstream>
+#include <iterator>
 #include <iomanip>
-#include <fstream>
-#include <random>
 #include <memory>
-#include <cmath>
-#include <cfloat>
-#include <algorithm>
+#include <random>
 #include <string>
+#include <unordered_map>
+#include <stack>
 
 #include <glm/glm.hpp>
 #define _USE_MATH_DEFINES
@@ -24,9 +24,54 @@
 //#define REAL_DATA
 
 void framebuffer_size_callback(GLFWwindow* window, int width, int height);
-void delTrash(std::vector<std::vector<float>> &vec, const glm::vec2& pos, bool (*compareFunc)(float, float));
+void randomFill(std::vector<std::vector<float>>& vec);
 void vecOut(const std::vector<std::vector<float>> &vec);
 void processInput(GLFWwindow *window);
+
+std::string toPosfix(const std::string& str)
+{
+    std::unordered_map<char, int> priority
+    {
+        {'(', 0}, 
+        {')', 1}, 
+        {'=', 2}, 
+        {'+', 3}, 
+        {'-', 3}, 
+        {'*', 3}, 
+    };
+
+    std::stringstream ss("("+ str + ")");
+    std::istream_iterator<char> beg(ss), end;
+    std::string result;
+    std::stack<char> stack;
+
+    while(beg != end)
+    {
+        char symb = *beg;
+        if(!priority.contains(symb))
+        {
+            result += symb;
+            ++beg;
+        }
+        else
+        {
+            if(symb == '(');
+            else while(priority[symb] <= priority[stack.top()])
+            {
+                result += stack.top();
+                stack.pop();
+            }
+            if(!(symb == ')'))
+                stack.push(symb);
+            else
+                stack.pop();
+            ++beg;
+        }
+    }
+    return result;
+}
+
+
 
 // settings
 const char* glsl_version = "#version 330";
@@ -40,25 +85,295 @@ const unsigned int SCR_HEIGHT = 600;
 extern const float maxCoord = 10.f; 
 extern const float minCoord = 0.f; 
 
-auto minFunc = [](float f, float s) { return f < s; };
-auto maxFunc = [](float f, float s) { return f > s; };
-
-struct child
+namespace PDL
 {
-    glm::vec2 first{};
-    glm::vec2 second{};
-    float val;
-};
+    struct Line
+    {
+        Line(const glm::vec2& origin, const glm::vec2& dir, float length) : from(origin), dir(glm::normalize(dir)), length(length){}
+        Line(const Line& other) : from(other.from), dir(other.dir), length(other.length){}
+        Line() {}
 
-int hierarchyFind(const std::vector<child>&hierarchy, float);
+        bool operator==(const Line& other) const
+        {
+            return from == other.from && dir == other.dir && length == other.length;
+        }
 
-size_t pointNum = 10;
+        glm::vec2 getEnd()
+        {
+            return from + dir * length;
+        }
+        void setEnd(glm::vec2 end)
+        {
+            end -= from;
+            length = glm::length(end);
+            dir = glm::normalize(end);
+        }
 
-void randomFill(std::vector<std::vector<float>>& vec);
-glm::vec2 find(std::vector<std::vector<float>>& vec, bool (*compareFunc)(float, float));
+        void moveEndTo(const glm::vec2& end)
+        {
+            from = end - dir * length;
+        }
+        void moveTo(const glm::vec2& origin)
+        {
+            from = origin;
+        }
+
+        float getLength() const
+        {
+            return length;
+        }
+        void setLength(float _length)
+        {
+            length = _length;
+        }
+
+        void setDir(const glm::vec2& _dir)
+        {
+            dir = glm::normalize(_dir);
+        }
+        const glm::vec2& getDir() const
+        {
+            return dir;
+        }
+        
+        void setOrigin(const glm::vec2& _from)
+        {
+            from = _from;
+        }
+        const glm::vec2& getOrigin() const
+        {
+            return from;
+        }
+
+
+
+        std::string toString()
+        {
+            std::stringstream result("");
+            result << "Line: \n" <<
+                    "{\n" <<
+                    "origin: ("<<  from.x << " " << from.y << ")\n" <<
+                    "dir: (" << dir.x << " " << dir.y << ")\n" <<
+                    "length: ("<< length << ")" << 
+                    "}\n";  
+            return result.str();
+        }
+    private:
+        glm::vec2 from, dir;
+        float length;
+    };
+
+    struct HorizontalLine : public Line
+    {
+        HorizontalLine(float dx) : Line({0, 0}, {dx, 0}, 1){}
+        //inline HorizontalLine(const Line& other) : Line(other){}
+    };
+
+    struct VertialLine : public Line
+    {
+        VertialLine(float dy) : Line({0, 0}, {0, dy}, 1){}
+    };
+
+    struct DiagonalLine : public Line
+    {
+        DiagonalLine(float dx, float dy) : Line({0, 0}, {dx, dy}, std::sqrt(2.0f)){}
+    };
+
+    class Lines
+    {
+    public:
+        Lines() = default;
+        Lines(Line& line) : _data({line}){}
+        Lines(Line&& line) : _data({std::move(line)}){}
+        Lines(Lines&& other) : _data(std::move(other._data)){}
+        Lines(Lines& other) : _data(other._data){}
+        Lines(std::string line);
+
+        Lines& operator+=(const Lines& other);
+        Lines& operator-=(const Lines& other);
+        Lines& operator*=(const Lines& other);
+        bool empty() const;
+
+        Lines& operator=(Lines&& other)
+        {
+            _data = std::move(other._data);
+            first = true;
+            return *this;
+        }
+        Lines& operator=(const Lines& other)
+        {
+            _data = other._data;
+            first = true;
+            return *this;
+        }
+        bool operator==(const Lines& other) const
+        {
+            if(_data.size() != other._data.size())
+                return false;
+            bool result = true;
+            for(size_t i = 0; i < _data.size(); ++i)
+                result &= _data[i] == other._data[i];
+            return result;
+        }
+
+        void Plot();
+
+        std::string toString();
+
+        friend struct std::hash<Lines>;
+        
+    private:
+        bool first = true;
+        size_t copy(const Lines& other);
+        size_t reverseCopy(const Lines& other);
+
+
+        std::vector<Line> _data;
+    };
+    
+    std::unordered_map<char, Lines> terminals;
+
+    std::unordered_map<char, Lines&(Lines::*)(const Lines&)> operators{
+        {'+', &Lines::operator+=},
+        {'-', &Lines::operator-=},
+    };
+
+    Lines::Lines(std::string line)
+    {
+        if(line.size() < 3)
+        {
+            _data = terminals[line[0]]._data;
+            return;
+        }
+        line = toPosfix(line);
+        size_t pos;
+        size_t tempNonterminal = 0;
+        while((pos = line.find_first_of("+-*/=")) != std::string::npos)
+        {
+            if(line[pos] == '=')
+            {
+                terminals[line[pos - 2]] = terminals[line[pos - 1]];
+                line.replace(pos - 2, 3, std::string(1, line[pos - 2]));
+                if(line.size() == 1)
+                    tempNonterminal = line[0] + 1;
+            }
+            else
+            {
+                assert(tempNonterminal < 40 && "Too many nonterminals");
+
+                auto res = terminals[line[pos - 2]];
+                auto secondOperand = terminals[line[pos - 1]];
+
+                (res.*operators[line[pos]])(secondOperand);
+                terminals[tempNonterminal] = res;
+
+                line.replace(pos - 2, 3, std::string(1, tempNonterminal));
+
+                ++tempNonterminal;
+            }
+        }
+        copy(terminals[tempNonterminal - 1]);
+    }
+    Lines& Lines::operator+=(const Lines& other)
+    {
+        auto prevSize = copy(other);
+        for(size_t i = prevSize; i < _data.size(); ++i)
+            _data[i].moveTo(_data[i - 1].getEnd());
+        
+        return *this;
+    }
+    Lines& Lines::operator-=(const Lines& other)
+    {
+        auto prevSize = reverseCopy(other);
+        for(size_t i = prevSize; i < _data.size(); ++i)
+        {
+            _data[i].moveTo(_data[i - 1].getEnd());
+            _data[i].setDir(-_data[i].getDir());
+        }
+        
+        
+        return *this;
+    }
+    Lines& Lines::operator*=(const Lines& other)
+    {
+        auto prevSize = copy(other);
+
+        _data[prevSize].setOrigin(_data[0].getOrigin());
+        for(size_t i = prevSize + 1; i < _data.size() - 1; ++i)
+            _data[i].setOrigin(_data[i - 1].getEnd());
+        _data[_data.size() - 1].setEnd(_data[prevSize - 1].getEnd());
+
+        return *this;
+    }
+    bool Lines::empty() const
+    {
+        return _data.empty();
+    }
+    void Lines::Plot()
+    {
+        if(_data.empty())
+            return;
+        if(first)
+        {
+            _data.push_back(Line{{0, 0}, {0, 0}, 0});
+            _data[_data.size() - 1].setOrigin(_data[_data.size() - 2].getEnd());
+            first = false;
+        }
+        float* ptr = (float*)&_data.front();
+        ImPlot::PlotLine("Plot", ptr, ptr + 1, _data.size(), 0, 0, sizeof(Line));
+    }
+
+    std::string Lines::toString()
+    {
+        std::string result;
+        for(auto& elem : _data)
+            result += elem.toString();
+        return result;
+    }
+    size_t Lines::copy(const Lines& other)
+    {
+        auto prevSize = _data.size(); 
+        _data.resize(prevSize + other._data.size());
+        std::copy(other._data.begin(), other._data.end(), _data.begin() + prevSize);
+        return prevSize;
+    }
+    size_t Lines::reverseCopy(const Lines& other)
+    {
+        auto prevSize = _data.size();
+        _data.resize(prevSize + other._data.size());
+        std::copy(other._data.rbegin(), other._data.rend(), _data.begin() + prevSize);
+        return prevSize;
+    }
+}
+
+namespace std
+{
+    template<>
+    struct hash<PDL::Lines>
+    {
+        size_t operator()(const PDL::Lines& lines) const
+        {
+            size_t result = 0;
+            for(auto& elem : lines._data)
+            {
+                result += std::hash<float>()(elem.getOrigin().x);
+                result += std::hash<float>()(elem.getOrigin().y);
+                result += std::hash<float>()(elem.getDir().x);
+                result += std::hash<float>()(elem.getDir().y);
+                result += std::hash<float>()(elem.getLength());
+            }
+            return result;
+        }
+    };
+}
 
 int main()
 {
+    PDL::terminals['a'] = PDL::Lines(PDL::HorizontalLine(1.0f));
+    PDL::terminals['b'] = PDL::Lines(PDL::VertialLine(1.0f));
+    PDL::terminals['c'] = PDL::Lines(PDL::DiagonalLine(1.0f, 1.0f));
+    PDL::terminals['d'] = PDL::Lines(PDL::DiagonalLine(1.0f, -1.0f));
+
     glfwInit();
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
@@ -93,33 +408,25 @@ int main()
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
 
+    std::unordered_map<std::string, std::string> objects;
+    objects[toPosfix("a + b - a - b")] = "square";
+    objects[toPosfix("c + d - c - d")] = "rohmbus";
+    objects[toPosfix("a + b + d - c + b")] = "arrow";
 
-    std::vector<std::vector<float>> dists(pointNum);
-    for(auto& elem : dists) elem.resize(pointNum);
-    randomFill(dists);
-    for(int i = 0; i < pointNum; ++i)
-    {
-        dists[i][i] = 0.0f;
-        for(int j = 0; j < i; ++j)
-            dists[i][j] = dists[j][i];
-    }
+    std::unordered_map<PDL::Lines, std::string> lObjects;
+    lObjects[PDL::Lines("a + b - a - b")] = "square";
+    lObjects[PDL::Lines("c + d - c - d")] = "rohmbus";
+    lObjects[PDL::Lines("a + b + d - c + b")] = "arrow";
+    lObjects[PDL::Lines("a")] = "horizontal line";
+    lObjects[PDL::Lines("b")] = "vertical line";    
+    lObjects[PDL::Lines("c")] = "diagonal line";
+    lObjects[PDL::Lines("d")] = "diagonal line";
+    
 
+    PDL::Lines result;
 
-    glPointSize(10);
-    glClearColor(0.f, 0.f, 0.f, 0.0f);
     bool open = true;
-    std::vector<child> hierarchy;
-    auto copyDists = dists;
-    auto prevPointNum = pointNum;
-    vecOut(copyDists);
-    std::cout << std::endl;
-    for(auto& elem : hierarchy)
-    {
-        std::cout << elem.first.x << ' ' << elem.second.x << '\n'; 
-    }
-    std::cout << std::endl;
-    bool reFill = false;
-    bool cmprFunc = false;
+    PDL::Lines toCheck;
     while (!glfwWindowShouldClose(window))
     {
         processInput(window);
@@ -130,125 +437,78 @@ int main()
 
         //ImGui::ShowDemoWindow();
         //ImPlot::ShowDemoWindow();
-        ImGui::Begin("Lab 4", &open, ImGuiWindowFlags_NoResize);
-        ImGui::SetWindowSize(ImVec2(SCR_WIDTH, SCR_HEIGHT));
         
-        ImGui::SliderInt("size", reinterpret_cast<int*>(&pointNum), 2, 10);
-
-        size_t tableSize = pointNum + 1;
-        if (ImGui::BeginTable("Input", tableSize))
+        ImGui::Begin("Lab 7", &open, ImGuiWindowFlags_NoResize);
+        ImGui::SetWindowSize({SCR_WIDTH, SCR_HEIGHT});
+        static char buff[256]{};
+        ImGui::InputTextMultiline("Expression", buff, 256, {640, 200});
+        if(ImGui::Button("Solve", {100, 30}) && buff[0] != '\0')
         {
-            ImGui::TableNextRow();
-            for(int j = 0; j < tableSize; ++j)
+            static char tempNonterminal; 
+            toCheck = PDL::Lines();
+            std::string str{buff};
+            std::vector<std::string> lines;
             {
-                ImGui::TableSetColumnIndex(j);
-                ImGui::Text("x%d", j);
-            }
-            for (int i = 1; i < tableSize ; ++i)
-            {
-                ImGui::TableNextRow();
-                ImGui::TableSetColumnIndex(0);
-                ImGui::Text("x%d", i);
-                for (int j = 1; j < tableSize; ++j)
-                {
-                    ImGui::TableSetColumnIndex(j);
-                    ImGui::InputFloat((std::string("##") + std::to_string(i) + std::to_string(j)).c_str(), &(dists[i - 1][j - 1]), 0, 100.0);
+            std::istringstream iss(str);
+                std::string line;
+                while (std::getline(iss, line, '\n')) {
+                    lines.push_back(line);
                 }
             }
-            ImGui::EndTable();
-
-            static bool prevState = cmprFunc;
-            ImGui::Checkbox("Max", &cmprFunc);
-            reFill = prevState != cmprFunc;
-            prevState = cmprFunc;
-
-            ImGui::SameLine();
-            if(reFill = ImGui::Button("Regenerate", ImVec2(100, 30)))
-            {
-                randomFill(dists);
-                for(int i = 0; i < pointNum; ++i)
-                {
-                    dists[i][i] = 0.0f;
-                    for(int j = 0; j < i; ++j)
-                        dists[i][j] = dists[j][i];
-                }
-            }
-
-        }
-
-        static auto size = copyDists.size();
-        if(pointNum != prevPointNum || reFill)
-        {
-            copyDists = dists;
-            copyDists.resize(pointNum);
-            for(auto& arr : copyDists)
-                arr.resize(pointNum);
-            hierarchy.clear();
-
-            size = pointNum;
-            prevPointNum = pointNum;
-        }
-
-        while(size > 1)
-        {
-            glm::vec2 anchor;
-            if(cmprFunc)
-                anchor = find(copyDists, maxFunc);
-            else
-                anchor = find(copyDists, minFunc);
             
-            child a;
-            int ind;
-            if((ind = hierarchyFind(hierarchy, anchor.x)) != -1)
+            for(auto& line : lines)
             {
-                auto& chld = hierarchy[ind];
-                a.first.x = (chld.first.x + chld.second.x) / 2.0f;
-                a.first.y = chld.val;    
-            }
-            else
-                a.first.x = anchor.x;
+                enum actions
+                {
+                    to_plot,
+                    to_check
+                } action;
+                std::string lowerStr = line;
+                std::transform(lowerStr.begin(), lowerStr.end(), lowerStr.begin(), ::tolower);
+                size_t pos; 
+                if((pos = lowerStr.find("check")) != std::string::npos)
+                {
+                    action = actions::to_check;
+                    line.erase(pos, 6);
+                }
+                else
+                    action = actions::to_plot;
 
-            if((ind = hierarchyFind(hierarchy, anchor.y)) != -1)
-            {
-                auto& chld = hierarchy[ind];
-                a.second.x = (chld.first.x + chld.second.x) / 2.0f;
-                a.second.y = chld.val;    
+                switch(action)
+                {
+                    case actions::to_plot:
+                    {
+                        result = PDL::Lines(line);
+                        break;
+                    }
+                    case actions::to_check:
+                    {
+                        toCheck = PDL::Lines(line);
+                    }
+                }
             }
-            else
-                a.second.x = anchor.y;
-            a.val = copyDists[anchor.y][anchor.x];
-
-            hierarchy.push_back(a);
-            if(cmprFunc)
-                delTrash(copyDists, anchor, maxFunc);
-            else
-                delTrash(copyDists, anchor, minFunc);
-            --size;
-
-            vecOut(copyDists);
-            std::cout << std::endl;
-            for(auto& elem : hierarchy)
-            {
-                std::cout << elem.first.x << ' ' << elem.second.x << ' ' << elem.val << '\n'; 
-            }
-            std::cout << std::endl;
         }
-
-
-        ImPlot::BeginPlot("Plot");
-        int ind = 0;
-        for(auto& elem : hierarchy)
+        // if(terminals.contains('#'))
+        //     ImGui::Text(terminals['#'].toString().c_str());
+        if(!toCheck.empty())
         {
-            std::string lbl("a");
-            lbl[0] += ind;
-
-            float xb[] = {elem.first.x, elem.first.x, elem.second.x, elem.second.x}; 
-            float yb[] = {elem.first.y, elem.val, elem.val, elem.second.y};               
-
-            ImPlot::PlotLine(lbl.c_str(), xb, yb, 4);
-            ++ind;
+            bool found = false;
+            for(auto& elem : lObjects)
+            {
+                if(elem.first == toCheck)
+                {
+                    ImGui::Text("There is %s", elem.second.c_str());
+                    found = true;
+                }
+            }
+            if(!found)
+                ImGui::Text("This is no kwown object");
         }
-        ImPlot::EndPlot();
+        if(ImPlot::BeginPlot("Plot"))
+        {
+            result.Plot();
+            ImPlot::EndPlot();
+        }
         ImGui::End();
        
 
@@ -284,22 +544,6 @@ void processInput(GLFWwindow *window)
         glfwSetWindowShouldClose(window, true);
 }
 
-int hierarchyFind(const std::vector<child> &hierarchy, float a)
-{
-    int res = -1;
-    int temp = 0;
-    for(auto& elem : hierarchy)
-    {
-        if(std::abs(elem.second.x - a) <= delta ||
-           std::abs(elem.first.x - a) <= delta) 
-        {
-            res = temp;
-            a = (elem.first.x + elem.second.x) / 2.0f;
-        }
-        ++temp;
-    }
-    return res;
-}
 
 void randomFill(std::vector<std::vector<float>> &vec)
 {
@@ -309,52 +553,6 @@ void randomFill(std::vector<std::vector<float>> &vec)
     for(auto& arr : vec)
         for(auto& elem : arr)
             elem = dis(gen);
-}
-
-glm::vec2 find(std::vector<std::vector<float>> &vec, bool (*compareFunc)(float, float))
-{
-    glm::vec2 res;
-    bool end = false;
-    for(int i = 0; i < vec.size() && !end; ++i)
-    {
-        for(int j = i + 1; j < vec.size() && !end; ++j)
-        {
-            res = glm::vec2(j, i);
-            if(vec[i][j] > 0)
-                end = true;
-        }
-    }
-
-    for(size_t i = 0; i < vec.size(); ++i)
-    {
-        for(size_t j = i + 1; j < vec.size(); ++j)
-        {
-            if(vec[i][j] <= 0) 
-                continue;
-            if(compareFunc(vec[i][j], vec[res.y][res.x]))
-                res = glm::vec2(j, i);
-        }
-    }
-
-    return res;
-}
-
-
-//no deliting in the [pos.y] class place data from union, [pos.x] now is -1 every where
-void delTrash(std::vector<std::vector<float>> &vec, const glm::vec2& pos, bool (*compareFunc)(float, float))
-{
-    for(int i = 0; i < vec.size(); ++i)
-    {
-        auto maxVal = compareFunc(vec[pos.x][i], vec[pos.y][i]) ? vec[pos.x][i] : vec[pos.y][i];
-        //[pos.y] class place data from union
-        vec[pos.y][i] = maxVal;
-        vec[i][pos.y] = maxVal;
-        
-        vec[pos.x][i] = -1.0f;
-        vec[i][pos.x] = -1.0f;
-    }
-
-    
 }
 
 void vecOut(const std::vector<std::vector<float>> &vec)
