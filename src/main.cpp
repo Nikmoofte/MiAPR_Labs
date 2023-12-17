@@ -1,6 +1,7 @@
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 #include <iostream>
+#include <memory>
 
 #include "ShaderProg/ShaderProg.h"
 #include <VBO/VBO.h>
@@ -78,9 +79,17 @@ int main()
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;       // Enable Multi-Viewport / Platform Windows
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glsl_version);
+    std::shared_ptr<ShaderProg> base;
+    try
+    {
+        base = std::make_shared<ShaderProg>("../shaders/Base.vs", "../shaders/Base.fs");
+    }
+    catch(const std::exception& e)
+    {
+        std::cerr << e.what() << '\n';
+    }
     
-    ShaderProg base("../../shaders/Base.vs", "../../shaders/Base.fs");
-    glUniform1f(base.GetLocation("maxCoord"), maxCoord);
+    glUniform1f(base->GetLocation("maxCoord"), maxCoord);
 
     Points points(pointsNum);
     points.randomFill();
@@ -173,10 +182,10 @@ int main()
         glPointSize(4);
         for(auto& points : vec)
         {
-            Renderer::Draw(points, base);
+            Renderer::Draw(points, *base);
         }
         glPointSize(5);
-        Renderer::Draw(cores, base);
+        Renderer::Draw(cores, *base);
 
 
 
@@ -226,10 +235,10 @@ int main()
                 glPointSize(4);
                 for(auto& points : vec)
                 {
-                    Renderer::Draw(points, base);
+                    Renderer::Draw(points, *base);
                 }
                 glPointSize(5);
-                Renderer::Draw(cores, base);
+                Renderer::Draw(cores, *base);
                 glfwSwapBuffers(window);
 
             }
